@@ -1,14 +1,19 @@
 package com.example.enjoyBot.service;
 
 import com.example.enjoyBot.config.BotConfig;
+import com.example.enjoyBot.model.User;
+import com.example.enjoyBot.model.UserRepository;
 import com.vdurmont.emoji.Emoji;
 import com.vdurmont.emoji.EmojiParser;
 import lombok.extern.slf4j.Slf4j;
+import org.glassfish.grizzly.http.util.TimeStamp;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
+import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
 import org.telegram.telegrambots.meta.api.objects.commands.scope.BotCommandScopeDefault;
@@ -18,12 +23,18 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
+import java.security.Timestamp;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 
 @Slf4j
 @Component
 public class TelegramBot extends TelegramLongPollingBot {
+
+    @Autowired
+    private UserRepository userRepository;
 
     final BotConfig config;
     static final String HELP_TEXT = "Этот бот создан ради рахата Version: 0.0.1";
@@ -33,11 +44,8 @@ public class TelegramBot extends TelegramLongPollingBot {
         List<BotCommand> listOfCommands = new ArrayList();
         listOfCommands.add(new BotCommand("/start", "get a welcome message"));
         listOfCommands.add(new BotCommand("/mydata", "get your data stored"));
-        listOfCommands.add(new BotCommand("/java", "get info about Java language"));
-        listOfCommands.add(new BotCommand("/deletedata", "delete my data"));
-        listOfCommands.add(new BotCommand("/help", "info how to use bot"));
-        listOfCommands.add(new BotCommand("/settings", "set your preferences"));
-        listOfCommands.add(new BotCommand("/register", "register"));
+        listOfCommands.add(new BotCommand("/help", "info about this bot"));
+        listOfCommands.add(new BotCommand("/settings", "user settings"));
         try {
             this.execute(new SetMyCommands(listOfCommands, new BotCommandScopeDefault(), null));
         }
@@ -62,11 +70,20 @@ public class TelegramBot extends TelegramLongPollingBot {
             String messageText = update.getMessage().getText();
             long chatId = update.getMessage().getChatId();
 
+            if (messageText.contains("/send") && config.getOwnerId() == chatId) {
+                var textToSend = EmojiParser.parseToUnicode(messageText.substring(messageText.indexOf(" ")));
+                var users = userRepository.findAll();
+                for (User user : users) {
+                    sendMessage(user.getChatId(), textToSend);
+                }
+            }
+
             switch (messageText) {
                 case "/start":
                     startCommandReceived(chatId, update.getMessage().getChat().getFirstName());
+                    registerUser(update.getMessage());
                     break;
-                case "/java":
+                case "Java":
                     sendMessage(chatId, "Вот ссылки на некоторые ресурсы на тему Java: " + "\n" + "https://habr.com/ru/post/237043/" +
                             "\n" + "https://habr.com/ru/post/237044/" +
                             "\n" + "https://habr.com/ru/post/237045/");
@@ -80,7 +97,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                 case "/c#":
                     sendMessage(chatId, "C# принял ислам(((");
                     break;
-                case "/register":
+                case "Регистрация":
                     register(chatId);
                     break;
                 default: sendMessage(chatId, "Sorry, command was not recognized...");
@@ -118,6 +135,24 @@ public class TelegramBot extends TelegramLongPollingBot {
                 }
 
             }
+        }
+    }
+
+    private void registerUser(Message message) {
+        if (userRepository.findById(message.getChatId()).isEmpty()) {
+
+            var chatId = message.getChatId();
+            var chat = message.getChat();
+
+            User user = new User();
+
+            user.setChatId(chatId);
+            user.setFirstName(chat.getFirstName());
+            user.setLastName(chat.getLastName());
+            user.setUserName(chat.getUserName());
+
+            userRepository.save(user);
+            log.info("User saved: " + user);
         }
     }
 
@@ -172,20 +207,19 @@ public class TelegramBot extends TelegramLongPollingBot {
         List<KeyboardRow> keyboardRows = new ArrayList<>();
 
         KeyboardRow row = new KeyboardRow();
-        row.add("Случайное число");
-        row.add("testButton");
+        row.add("Регистрация");
+        row.add("Помощь");
 
         keyboardRows.add(row);
 
         row = new KeyboardRow();
-        row.add("я не знаю что уже писать");
-        row.add("/register");
         row.add("Java");
 
 
         keyboardRows.add(row);
 
         keyboardMarkup.setKeyboard(keyboardRows);
+        keyboardMarkup.setResizeKeyboard(true);
 
         message.setReplyMarkup(keyboardMarkup);
         try {
